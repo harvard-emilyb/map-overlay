@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map Overlay - Shared View</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .view-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 10px 20px;
+            background: #16213e;
+            border-bottom: 1px solid #0f3460;
+        }
+        .view-header h1 {
+            font-size: 18px;
+            color: #e94560;
+        }
+        .view-header .map-title {
+            font-size: 16px;
+            color: #e0e0e0;
+        }
+        .spacer { flex: 1; }
+        .btn-primary {
+            padding: 8px 20px;
+            background: #e94560;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn-primary:hover { background: #d63851; }
+        .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-secondary {
+            padding: 8px 16px;
+            background: transparent;
+            color: #aaa;
+            border: 1px solid #0f3460;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .btn-secondary:hover { background: #0f3460; color: #e0e0e0; }
+        #view-map {
+            flex: 1;
+            width: 100%;
+        }
+        .leaflet-container { background: #1a1a2e !important; }
+        .location-tooltip {
+            background: rgba(22, 33, 62, 0.92) !important;
+            color: #e0e0e0 !important;
+            border: 1px solid #4ecca3 !important;
+            border-radius: 4px !important;
+            font-size: 11px !important;
+            padding: 3px 8px !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4) !important;
+        }
+        .location-tooltip::before { border-top-color: #4ecca3 !important; }
+        .loading {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            color: #888;
+        }
+        .error-msg { color: #e94560; }
+    </style>
+</head>
+<body>
+    <div class="view-header">
+        <h1>Map Overlay</h1>
+        <span class="map-title" id="map-title"></span>
+        <div class="spacer"></div>
+        <button class="btn-secondary" id="btn-download">Download Image</button>
+        <a href="/" class="btn-primary" style="text-decoration:none;">Create Your Own</a>
+    </div>
+    <div id="loading" class="loading">Loading map...</div>
+    <div id="view-map" style="display:none;"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const MAP_ID = {{ map_id | tojson }};
+
+        let viewMap = null;
+        let imageUrl = null;
+        let imageWidth = 0;
+        let imageHeight = 0;
+        let savedData = null;
+
+        async function init() {
+            const loadingEl = document.getElementById('loading');
+            try {
+                const resp = await fetch(`/api/saved/${MAP_ID}`);
+                if (!resp.ok) throw new Error('Map not found');
+                savedData = await resp.json();
+
+                // Set title
+                if (savedData.title) {
+                    document.getElementById('map-title').textContent = savedData.title;
+                    document.title = `Map Overlay - ${savedData.title}`;
+                }
+
+                imageUrl = savedData.image.url;
+                imageWidth = savedData.image.width;
+                imageHeight = savedData.image.height;
+
+                // Show map
+                loadingEl.style.display = 'none';
+                const mapEl = document.getElementById('view-map');
+                mapEl.style.display = 'block';
+
+                const bounds = [[0, 0], [imageHeight, imageWidth]];
+                viewMap = L.map('view-map', {
+                    crs: L.CRS.Simple,
+                    minZoom: -5,
+                    maxZoom: 5,
+                    zoomSnap: 0.25,
+                });
+                L.imageOverlay(imageUrl, bounds).addTo(viewMap);
+                viewMap.fitBounds(bounds);
+
+                // Plot points
+                const points = savedData.transformedPoints || [];
+                const settings = savedData.displaySettings || [];
+                const style = savedData.markerStyle || {};
+                const mColor = style.color || '#4ecca3';
+                const mRadius = style.radius || 7;
+
+                points.forEach((pt, i) => {
+                    const leafletY = imageHeight - pt.py;
+                    const marker = L.circleMarker([leafletY, pt.px], {
+                        radius: mRadius,
+                        color: mColor,
+                        fillColor: mColor,
+                        fillOpacity: 0.9,
+                        weight: 1,
+                    }).addTo(viewMap);
+
+                    const s = settings[i] || {};
+                    const displayName = s.title || pt.formatted_address || pt.address;
+
+                    // Tooltip
+                    const tooltipParts = [];
+                    if (s.showTooltip) {
+                        tooltipParts.push(displayName);
+                        if (s.description) tooltipParts.push(`<em>${s.description}</em>`);
+                    }
+                    if (s.showCoords) tooltipParts.push(`${pt.lat.toFixed(5)}, ${pt.lng.toFixed(5)}`);
+
+                    if (tooltipParts.length > 0) {
+                        marker.bindTooltip(tooltipParts.join('<br>'), {
+                            permanent: true,
+                            direction: 'top',
+                            offset: [0, -8],
+                            className: 'location-tooltip',
+                        });
+                    }
+
+                    // Popup (always)
+                    const popupParts = [`<strong>${displayName}</strong>`];
+                    if (s.description) popupParts.push(`<em>${s.description}</em>`);
+                    popupParts.push(`<small>${pt.formatted_address || pt.address}</small>`);
+                    popupParts.push(`<small>${pt.lat.toFixed(5)}, ${pt.lng.toFixed(5)}</small>`);
+                    marker.bindPopup(popupParts.join('<br>'));
+                });
+
+            } catch (err) {
+                loadingEl.textContent = 'Error: ' + err.message;
+                loadingEl.classList.add('error-msg');
+            }
+
+            // Download button
+            document.getElementById('btn-download').addEventListener('click', handleDownload);
+        }
+
+        async function handleDownload() {
+            if (!savedData) return;
+            const btn = document.getElementById('btn-download');
+            btn.textContent = 'Rendering...';
+            btn.disabled = true;
+
+            try {
+                const img = await loadImage(imageUrl);
+                const canvas = document.createElement('canvas');
+                canvas.width = imageWidth;
+                canvas.height = imageHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, imageWidth, imageHeight);
+
+                const points = savedData.transformedPoints || [];
+                const settings = savedData.displaySettings || [];
+                const style = savedData.markerStyle || {};
+                const mColor = style.color || '#4ecca3';
+                const mRadius = style.radius || 7;
+                const scale = Math.max(imageWidth, imageHeight) / 1000;
+                const r = mRadius * scale;
+                const fontSize = Math.max(12, Math.round(11 * scale));
+
+                points.forEach((pt, i) => {
+                    const x = pt.px;
+                    const y = pt.py;
+
+                    ctx.beginPath();
+                    ctx.arc(x, y, r, 0, Math.PI * 2);
+                    ctx.fillStyle = mColor;
+                    ctx.globalAlpha = 0.9;
+                    ctx.fill();
+                    ctx.globalAlpha = 1;
+                    ctx.strokeStyle = mColor;
+                    ctx.lineWidth = Math.max(1, scale * 0.5);
+                    ctx.stroke();
+
+                    const s = settings[i] || {};
+                    const displayName = s.title || pt.formatted_address || pt.address;
+                    const parts = [];
+                    if (s.showTooltip) {
+                        parts.push(displayName);
+                        if (s.description) parts.push(s.description);
+                    }
+                    if (s.showCoords) parts.push(`${pt.lat.toFixed(5)}, ${pt.lng.toFixed(5)}`);
+
+                    if (parts.length > 0) {
+                        ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+                        ctx.textAlign = 'center';
+                        const lineHeight = fontSize * 1.3;
+                        const textY = y - r - 6 * scale;
+                        let maxWidth = 0;
+                        parts.forEach(p => { const w = ctx.measureText(p).width; if (w > maxWidth) maxWidth = w; });
+                        const padding = 4 * scale;
+                        const bgHeight = parts.length * lineHeight + padding * 2;
+                        const bgY = textY - bgHeight + padding;
+                        ctx.fillStyle = 'rgba(22, 33, 62, 0.9)';
+                        ctx.fillRect(x - maxWidth / 2 - padding, bgY, maxWidth + padding * 2, bgHeight);
+                        ctx.strokeStyle = mColor;
+                        ctx.lineWidth = Math.max(1, scale * 0.5);
+                        ctx.strokeRect(x - maxWidth / 2 - padding, bgY, maxWidth + padding * 2, bgHeight);
+                        ctx.fillStyle = '#e0e0e0';
+                        parts.forEach((p, li) => {
+                            ctx.fillText(p, x, bgY + padding + (li + 1) * lineHeight - fontSize * 0.2);
+                        });
+                    }
+                });
+
+                const link = document.createElement('a');
+                link.download = 'map-overlay.png';
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            } catch (err) {
+                alert('Download failed: ' + err.message);
+            }
+
+            btn.textContent = 'Download Image';
+            btn.disabled = false;
+        }
+
+        function loadImage(url) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => resolve(img);
+                img.onerror = () => reject(new Error('Failed to load image'));
+                img.src = url;
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map Overlay</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<!-- SCREEN 1: Configure Map -->
+<div class="screen active" id="screen-configure">
+    <div class="wizard-header">
+        <h1>Map Overlay</h1>
+        <div class="wizard-steps">
+            <div class="step active" id="step-upload">1. Upload Map</div>
+            <div class="step" id="step-control-points">2. Set Control Points</div>
+        </div>
+    </div>
+
+    <!-- Step 1: Upload -->
+    <div class="wizard-body" id="wizard-upload">
+        <div class="upload-area" id="upload-area">
+            <div class="upload-icon">&#128506;</div>
+            <p>Upload a historical map image</p>
+            <p class="upload-hint">JPG, PNG, GIF, or WebP &mdash; max 50MB</p>
+            <label class="upload-btn" for="map-upload">Choose File</label>
+            <input type="file" id="map-upload" accept=".jpg,.jpeg,.png,.gif,.webp">
+        </div>
+    </div>
+
+    <!-- Step 2: Control Points -->
+    <div class="wizard-body hidden" id="wizard-cp">
+        <div class="cp-wizard-bar">
+            <div class="cp-step-indicators" id="cp-step-indicators">
+                <div class="cp-step-dot" id="cp-dot-1">
+                    <span class="dot-num">1</span>
+                    <span class="dot-label">Point 1</span>
+                    <button class="dot-remove" title="Remove this point" style="display:none;">&times;</button>
+                </div>
+                <div class="cp-step-dot" id="cp-dot-2">
+                    <span class="dot-num">2</span>
+                    <span class="dot-label">Point 2</span>
+                    <button class="dot-remove" title="Remove this point" style="display:none;">&times;</button>
+                </div>
+                <div class="cp-step-dot" id="cp-dot-3">
+                    <span class="dot-num">3</span>
+                    <span class="dot-label">Point 3</span>
+                    <button class="dot-remove" title="Remove this point" style="display:none;">&times;</button>
+                </div>
+            </div>
+            <div class="cp-wizard-instruction" id="cp-instruction">
+                Find a recognizable landmark and click it on the <strong>Historical Map</strong> (left).
+            </div>
+        </div>
+        <div class="cp-maps-container">
+            <div class="cp-map-panel">
+                <div class="panel-label" id="hist-panel-label">Historical Map</div>
+                <div id="historical-map"></div>
+            </div>
+            <div class="cp-map-panel">
+                <div class="panel-label" id="ref-panel-label">Reference Map (Google)</div>
+                <input type="text" id="ref-map-search" class="map-search-input" placeholder="Search for a place...">
+                <div id="reference-map"></div>
+            </div>
+        </div>
+        <div class="cp-actions">
+            <button id="btn-clear-cp" class="btn-secondary">Start Over</button>
+            <div class="spacer"></div>
+            <button id="btn-add-extra" class="btn-secondary" style="display:none;">+ Add More Points</button>
+            <button id="btn-next" class="btn-primary" disabled>Next &rarr;</button>
+        </div>
+    </div>
+
+    <!-- Mode banner -->
+    <div class="mode-banner" id="mode-banner"></div>
+</div>
+
+<!-- SCREEN 2: Add Data -->
+<div class="screen" id="screen-data">
+    <div class="screen-header">
+        <h1>Map Overlay</h1>
+        <div class="screen-toggle">
+            <button class="toggle-btn active" id="btn-show-data">Add Data</button>
+            <button class="toggle-btn" id="btn-show-map">View Map</button>
+        </div>
+        <button class="btn-secondary" id="btn-back-configure">&#9664; Reconfigure</button>
+    </div>
+    <div class="data-body">
+        <div class="data-panel">
+            <h2>Enter Addresses</h2>
+            <div class="addr-form">
+                <input type="text" id="addr-input" class="addr-field" placeholder="Address...">
+                <input type="text" id="addr-title" class="addr-field" placeholder="Title (optional)">
+                <input type="text" id="addr-desc" class="addr-field" placeholder="Description (optional)">
+                <button id="btn-geocode" class="btn-primary addr-add-btn">Add</button>
+            </div>
+            <div class="data-divider">
+                <span>or</span>
+            </div>
+            <label class="upload-btn" for="csv-upload">Upload CSV</label>
+            <input type="file" id="csv-upload" accept=".csv" style="display:none;">
+            <p class="upload-hint">CSV with an "address" column</p>
+            <a href="#" id="btn-csv-template" class="csv-template-link">Download CSV template</a>
+        </div>
+        <div class="data-list-panel">
+            <h2>Geocoded Addresses <span id="addr-count" class="badge">0</span></h2>
+            <div id="addr-status" class="data-status"></div>
+            <ul class="addr-list" id="addr-list"></ul>
+
+            <!-- Marker style controls -->
+            <div class="marker-style-section" id="marker-style-section" style="display:none;">
+                <h3>Marker Style</h3>
+                <div class="marker-style-row">
+                    <label>Color</label>
+                    <input type="color" id="marker-color" value="#4ecca3">
+                </div>
+                <div class="marker-style-row">
+                    <label>Size</label>
+                    <input type="range" id="marker-size" min="3" max="20" value="7">
+                    <span id="marker-size-val">7</span>
+                </div>
+                <div class="marker-preview-row">
+                    <label>Preview</label>
+                    <canvas id="marker-preview" width="60" height="60"></canvas>
+                </div>
+            </div>
+
+            <div class="data-actions" id="data-actions" style="display:none;">
+                <button id="btn-clear-addr" class="btn-secondary">Clear All</button>
+                <div class="spacer"></div>
+                <button id="btn-view-map" class="btn-primary">View Map &rarr;</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SCREEN 3: View Map -->
+<div class="screen" id="screen-map">
+    <div class="screen-header">
+        <h1>Map Overlay</h1>
+        <div class="screen-toggle">
+            <button class="toggle-btn" id="btn-show-data2">Add Data</button>
+            <button class="toggle-btn active" id="btn-show-map2">View Map</button>
+        </div>
+        <div class="spacer"></div>
+        <button class="btn-secondary" id="btn-save">Save &amp; Share</button>
+        <button class="btn-primary" id="btn-download">Download Image</button>
+    </div>
+    <div class="view-map-body">
+        <div id="view-map"></div>
+    </div>
+</div>
+
+<!-- Share modal -->
+<div class="modal-overlay hidden" id="share-modal">
+    <div class="modal">
+        <h2>Save &amp; Share</h2>
+        <div class="modal-field">
+            <label for="save-title">Map Title (optional)</label>
+            <input type="text" id="save-title" class="addr-field" placeholder="My Historical Map">
+        </div>
+        <div class="modal-actions" id="save-actions">
+            <button class="btn-secondary" id="btn-cancel-save">Cancel</button>
+            <button class="btn-primary" id="btn-confirm-save">Save</button>
+        </div>
+        <div class="share-result hidden" id="share-result">
+            <label>Share this link:</label>
+            <div class="share-link-row">
+                <input type="text" id="share-url" class="addr-field" readonly>
+                <button class="btn-primary" id="btn-copy-link">Copy</button>
+            </div>
+            <button class="btn-secondary" id="btn-close-modal" style="margin-top:12px;">Close</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key={{ api_key }}&libraries=places"></script>
+<script src="/static/js/historicalMap.js"></script>
+<script src="/static/js/referenceMap.js"></script>
+<script src="/static/js/controlPoints.js"></script>
+<script src="/static/js/geocoding.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
